@@ -27,7 +27,7 @@ namespace ray {
 namespace core {
 
 /**
- * SequentialActorSumitQueue extends ActorSubmitQueueInterface and ensures tasks are send
+ * SequentialActorSubmitQueue extends ActorSubmitQueueInterface and ensures tasks are send
  * in the sequential order defined by the sequence no.
  */
 class SequentialActorSubmitQueue : public ActorSubmitQueueInterface {
