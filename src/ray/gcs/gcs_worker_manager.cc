@@ -83,6 +83,7 @@ void GcsWorkerManager::HandleReportWorkerFailure(
                          worker_id,
                          worker_failure_data,
                          reply,
+                         is_duplicate_death_report,
                          send_reply_callback,
                          worker_ip_address =
                              worker_address.ip_address()](const Status &status) {
@@ -101,6 +102,9 @@ void GcsWorkerManager::HandleReportWorkerFailure(
                  worker_failure_data->worker_address().worker_id());
              worker_failure.set_node_id(worker_failure_data->worker_address().node_id());
              gcs_publisher_.PublishWorkerFailure(worker_id, std::move(worker_failure));
+             if (!is_duplicate_death_report) {
+               TrimDeadWorkers(worker_id);
+             }
            }
            GCS_RPC_SEND_REPLY(send_reply_callback, reply, status);
          };
@@ -111,9 +115,6 @@ void GcsWorkerManager::HandleReportWorkerFailure(
          // https://github.com/ray-project/ray/pull/11599
          gcs_table_storage_.WorkerTable().Put(
              worker_id, *worker_failure_data, {std::move(on_done), io_context_});
-         if (!is_duplicate_death_report) {
-           TrimDeadWorkers(worker_id);
-         }
          if (request.worker_failure().exit_type() == rpc::WorkerExitType::SYSTEM_ERROR ||
              request.worker_failure().exit_type() ==
                  rpc::WorkerExitType::NODE_OUT_OF_MEMORY) {
