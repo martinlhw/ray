@@ -27,6 +27,8 @@
 namespace ray {
 namespace gcs {
 
+class GcsInitData;
+
 class GcsWorkerManager : public rpc::WorkerInfoGcsServiceHandler {
  public:
   GcsWorkerManager(gcs::GcsTableStorage &gcs_table_storage,
@@ -77,8 +79,11 @@ class GcsWorkerManager : public rpc::WorkerInfoGcsServiceHandler {
    * maximum_gcs_dead_worker_cached_count. A no-op when the table holds no dead rows (a
    * fresh cluster or the in-memory store); under Redis fault tolerance it bounds the
    * dead-worker backlog that survived a GCS restart.
+   *
+   * @param gcs_init_data Metadata loaded from the store at startup, providing the worker
+   * table snapshot to rebuild the queue from.
    */
-  void RestoreDeadWorkerIdsQueue();
+  void RestoreDeadWorkerIdsQueue(const GcsInitData &gcs_init_data);
 
  private:
   void GetWorkerInfo(const WorkerID &worker_id,

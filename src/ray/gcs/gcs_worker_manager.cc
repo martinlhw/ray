@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "ray/gcs/gcs_init_data.h"
+
 namespace ray {
 namespace gcs {
 
@@ -338,39 +340,36 @@ void GcsWorkerManager::GetWorkerInfo(
           }));
 }
 
-void GcsWorkerManager::RestoreDeadWorkerIdsQueue() {
-  gcs_table_storage_.WorkerTable().GetAll(
-      {[this](absl::flat_hash_map<WorkerID, rpc::WorkerTableData> const &workers) {
-         std::vector<std::pair<WorkerID, uint64_t>> dead;
-         dead.reserve(workers.size());
-         for (const auto &[worker_id, data] : workers) {
-           if (!data.is_alive()) {
-             dead.emplace_back(worker_id,
-                               data.end_time_ms() != 0
-                                   ? data.end_time_ms()
-                                   : static_cast<uint64_t>(data.timestamp()));
-           }
-         }
-         std::sort(dead.begin(), dead.end(), [](const auto &left, const auto &right) {
-           return left.second < right.second;
-         });
-         const size_t cap = RayConfig::instance().maximum_gcs_dead_worker_cached_count();
-         const size_t overflow = dead.size() > cap ? dead.size() - cap : 0;
-         // Drop the oldest rows beyond the cap from the table in one batch
-         if (overflow > 0) {
-           std::vector<WorkerID> to_evict;
-           to_evict.reserve(overflow);
-           for (size_t i = 0; i < overflow; ++i) {
-             to_evict.push_back(dead[i].first);
-           }
-           gcs_table_storage_.WorkerTable().BatchDelete(
-               to_evict, {[](const auto &) {}, io_context_});
-         }
-         for (size_t i = dead.size(); i > overflow; --i) {
-           dead_worker_ids_queue_.push_front(dead[i - 1].first);
-         }
-       },
-       io_context_});
+void GcsWorkerManager::RestoreDeadWorkerIdsQueue(const GcsInitData &gcs_init_data) {
+  std::vector<std::pair<WorkerID, uint64_t>> dead;
+  dead.reserve(gcs_init_data.Workers().size());
+  for (const auto &[worker_id, data] : gcs_init_data.Workers()) {
+    if (!data.is_alive()) {
+      dead.emplace_back(worker_id,
+                        data.end_time_ms() != 0
+                            ? data.end_time_ms()
+                            : static_cast<uint64_t>(data.timestamp()));
+    }
+  }
+  std::sort(dead.begin(), dead.end(), [](const auto &left, const auto &right) {
+    return left.second < right.second;
+  });
+  const size_t cap = RayConfig::instance().maximum_gcs_dead_worker_cached_count();
+  const size_t overflow = dead.size() > cap ? dead.size() - cap : 0;
+  // Drop the oldest rows beyond the cap from the table in one batch.
+  if (overflow > 0) {
+    std::vector<WorkerID> to_evict;
+    to_evict.reserve(overflow);
+    for (size_t i = 0; i < overflow; ++i) {
+      to_evict.push_back(dead[i].first);
+    }
+    gcs_table_storage_.WorkerTable().BatchDelete(to_evict,
+                                                 {[](const auto &) {}, io_context_});
+  }
+  // Seed the queue with the retained (newest `cap`) ids, oldest first.
+  for (size_t i = overflow; i < dead.size(); ++i) {
+    dead_worker_ids_queue_.push_back(dead[i].first);
+  }
 }
 
 void GcsWorkerManager::TrimDeadWorkers(const WorkerID &worker_id) {

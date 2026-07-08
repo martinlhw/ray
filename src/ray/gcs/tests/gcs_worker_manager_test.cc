@@ -23,6 +23,7 @@
 #include "ray/asio/instrumented_io_context.h"
 #include "ray/common/ray_config.h"
 #include "ray/common/test_utils.h"
+#include "ray/gcs/gcs_init_data.h"
 #include "ray/gcs/store_client/in_memory_store_client.h"
 #include "ray/gcs/store_client_kv.h"
 #include "ray/util/compat.h"
@@ -72,10 +73,12 @@ class GcsWorkerManagerTest : public Test {
 
   std::shared_ptr<gcs::GcsWorkerManager> GetWorkerManager() { return worker_manager_; }
 
-  void WaitForIoService() {
+  gcs::GcsInitData LoadInitData() {
+    gcs::GcsInitData gcs_init_data(*gcs_table_storage_);
     std::promise<void> promise;
-    io_service_.post([&promise] { promise.set_value(); }, "WaitForIoService");
+    gcs_init_data.AsyncLoad({[&promise] { promise.set_value(); }, io_service_});
     promise.get_future().get();
+    return gcs_init_data;
   }
 
  private:
@@ -434,8 +437,10 @@ TEST_F(GcsWorkerManagerTest, TestRestoreDeadWorkerIdsQueue) {
   }
   ASSERT_EQ(get_all_worker_ids().size(), 5);
 
-  worker_manager->RestoreDeadWorkerIdsQueue();
-  WaitForIoService();
+  // Rebuild the queue from the startup snapshot (as GCS does before serving); it
+  // bulk-trims the table to the cap, keeping the newest by death time
+  gcs::GcsInitData gcs_init_data = LoadInitData();
+  worker_manager->RestoreDeadWorkerIdsQueue(gcs_init_data);
 
   auto remaining = get_all_worker_ids();
   ASSERT_EQ(remaining.size(), 3);
