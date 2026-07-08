@@ -366,16 +366,21 @@ void GcsWorkerManager::RestoreDeadWorkerIdsQueue() {
            gcs_table_storage_.WorkerTable().BatchDelete(
                to_evict, {[](const auto &) {}, io_context_});
          }
-         for (size_t i = overflow; i < dead.size(); ++i) {
-           dead_worker_ids_queue_.push_back(dead[i].first);
+         for (size_t i = dead.size(); i > overflow; --i) {
+           dead_worker_ids_queue_.push_front(dead[i - 1].first);
          }
        },
        io_context_});
 }
 
 void GcsWorkerManager::TrimDeadWorkers(const WorkerID &worker_id) {
-  if (dead_worker_ids_queue_.size() >=
-      RayConfig::instance().maximum_gcs_dead_worker_cached_count()) {
+  const size_t cap = RayConfig::instance().maximum_gcs_dead_worker_cached_count();
+  if (cap == 0) {
+    gcs_table_storage_.WorkerTable().Delete(worker_id,
+                                            {[](const auto &) {}, io_context_});
+    return;
+  }
+  if (dead_worker_ids_queue_.size() >= cap) {
     const WorkerID evict_id = dead_worker_ids_queue_.front();
     dead_worker_ids_queue_.pop_front();
     gcs_table_storage_.WorkerTable().Delete(evict_id, {[](const auto &) {}, io_context_});
