@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace ray {
 namespace gcs {
@@ -61,6 +62,9 @@ void GcsWorkerManager::HandleReportWorkerFailure(
                   "are lots of this logs, that might indicate there are "
                   "unexpected failures in the cluster.";
          }
+         // If the worker was already marked as dead, we don't need to update the worker
+         // table again.
+         const bool is_duplicate_death_report = result.has_value() && !result->is_alive();
          auto worker_failure_data =
              result.has_value()
                  ? std::make_shared<rpc::WorkerTableData>(std::move(*result))
@@ -105,7 +109,9 @@ void GcsWorkerManager::HandleReportWorkerFailure(
          // https://github.com/ray-project/ray/pull/11599
          gcs_table_storage_.WorkerTable().Put(
              worker_id, *worker_failure_data, {std::move(on_done), io_context_});
-
+         if (!is_duplicate_death_report) {
+           UpdateDeadWorkerIdsQueue(worker_id);
+         }
          if (request.worker_failure().exit_type() == rpc::WorkerExitType::SYSTEM_ERROR ||
              request.worker_failure().exit_type() ==
                  rpc::WorkerExitType::NODE_OUT_OF_MEMORY) {
@@ -330,6 +336,51 @@ void GcsWorkerManager::GetWorkerInfo(
             }
             return data;
           }));
+}
+
+void GcsWorkerManager::RestoreDeadWorkerIdsQueue() {
+  gcs_table_storage_.WorkerTable().GetAll(
+      {[this](absl::flat_hash_map<WorkerID, rpc::WorkerTableData> const &workers) {
+         std::vector<std::pair<WorkerID, uint64_t>> dead;
+         dead.reserve(workers.size());
+         for (const auto &[worker_id, data] : workers) {
+           if (!data.is_alive()) {
+             dead.emplace_back(worker_id,
+                               data.end_time_ms() != 0
+                                   ? data.end_time_ms()
+                                   : static_cast<uint64_t>(data.timestamp()));
+           }
+         }
+         std::sort(dead.begin(), dead.end(), [](const auto &left, const auto &right) {
+           return left.second < right.second;
+         });
+         const size_t cap = RayConfig::instance().maximum_gcs_dead_worker_cached_count();
+         const size_t overflow = dead.size() > cap ? dead.size() - cap : 0;
+         // Drop the oldest rows beyond the cap from the table in one batch
+         if (overflow > 0) {
+           std::vector<WorkerID> to_evict;
+           to_evict.reserve(overflow);
+           for (size_t i = 0; i < overflow; ++i) {
+             to_evict.push_back(dead[i].first);
+           }
+           gcs_table_storage_.WorkerTable().BatchDelete(
+               to_evict, {[](const auto &) {}, io_context_});
+         }
+         for (size_t i = overflow; i < dead.size(); ++i) {
+           dead_worker_ids_queue_.push_back(dead[i].first);
+         }
+       },
+       io_context_});
+}
+
+void GcsWorkerManager::UpdateDeadWorkerIdsQueue(const WorkerID &worker_id) {
+  dead_worker_ids_queue_.push_back(worker_id);
+  if (dead_worker_ids_queue_.size() >=
+      RayConfig::instance().maximum_gcs_dead_worker_cached_count()) {
+    const WorkerID evict_id = dead_worker_ids_queue_.front();
+    dead_worker_ids_queue_.pop_front();
+    gcs_table_storage_.WorkerTable().Delete(evict_id, {[](const auto &) {}, io_context_});
+  }
 }
 
 }  // namespace gcs
