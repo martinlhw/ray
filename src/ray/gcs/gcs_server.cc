@@ -817,6 +817,9 @@ void GcsServer::InitGcsWorkerManager() {
       io_context_provider_.GetDefaultIOContext(),
       *gcs_worker_manager_,
       RayConfig::instance().gcs_max_active_rpcs_per_handler()));
+  // No-op unless dead worker process entries in the worker table survived a GCS restart
+  // (Redis FT)
+  gcs_worker_manager_->RestoreDeadWorkerIdsQueue();
 }
 
 void GcsServer::InitGcsAutoscalerStateManager(const GcsInitData &gcs_init_data) {

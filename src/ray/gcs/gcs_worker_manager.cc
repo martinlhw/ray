@@ -110,7 +110,7 @@ void GcsWorkerManager::HandleReportWorkerFailure(
          gcs_table_storage_.WorkerTable().Put(
              worker_id, *worker_failure_data, {std::move(on_done), io_context_});
          if (!is_duplicate_death_report) {
-           UpdateDeadWorkerIdsQueue(worker_id);
+           TrimDeadWorkers(worker_id);
          }
          if (request.worker_failure().exit_type() == rpc::WorkerExitType::SYSTEM_ERROR ||
              request.worker_failure().exit_type() ==
@@ -373,14 +373,14 @@ void GcsWorkerManager::RestoreDeadWorkerIdsQueue() {
        io_context_});
 }
 
-void GcsWorkerManager::UpdateDeadWorkerIdsQueue(const WorkerID &worker_id) {
-  dead_worker_ids_queue_.push_back(worker_id);
+void GcsWorkerManager::TrimDeadWorkers(const WorkerID &worker_id) {
   if (dead_worker_ids_queue_.size() >=
       RayConfig::instance().maximum_gcs_dead_worker_cached_count()) {
     const WorkerID evict_id = dead_worker_ids_queue_.front();
     dead_worker_ids_queue_.pop_front();
     gcs_table_storage_.WorkerTable().Delete(evict_id, {[](const auto &) {}, io_context_});
   }
+  dead_worker_ids_queue_.push_back(worker_id);
 }
 
 }  // namespace gcs

@@ -21,6 +21,7 @@
 
 #include "mock/ray/pubsub/publisher.h"
 #include "ray/asio/instrumented_io_context.h"
+#include "ray/common/ray_config.h"
 #include "ray/common/test_utils.h"
 #include "ray/gcs/store_client/in_memory_store_client.h"
 #include "ray/gcs/store_client_kv.h"
@@ -70,6 +71,12 @@ class GcsWorkerManagerTest : public Test {
   }
 
   std::shared_ptr<gcs::GcsWorkerManager> GetWorkerManager() { return worker_manager_; }
+
+  void WaitForIoService() {
+    std::promise<void> promise;
+    io_service_.post([&promise] { promise.set_value(); }, "WaitForIoService");
+    promise.get_future().get();
+  }
 
  private:
   std::unique_ptr<std::thread> thread_io_service_;
@@ -302,4 +309,139 @@ TEST_F(GcsWorkerManagerTest, TestUpdateWorkerNumPausedThreads) {
     ASSERT_EQ(reply.total(), 1);
     ASSERT_EQ(reply.worker_table_data(0).num_paused_threads(), num_paused_threads_delta);
   }
+}
+
+TEST_F(GcsWorkerManagerTest, TestDeadWorkerEviction) {
+  RayConfig::instance().initialize(
+      R"(
+{
+"maximum_gcs_dead_worker_cached_count": 3
+}
+)");
+
+  auto worker_manager = GetWorkerManager();
+
+  auto report_worker_dead = [&](const WorkerID &worker_id) {
+    rpc::ReportWorkerFailureRequest request;
+    auto *worker_data = request.mutable_worker_failure();
+    worker_data->mutable_worker_address()->set_worker_id(worker_id.Binary());
+    worker_data->set_exit_type(rpc::WorkerExitType::INTENDED_SYSTEM_EXIT);
+    rpc::ReportWorkerFailureReply reply;
+    std::promise<void> promise;
+    auto callback = [&promise](Status status,
+                               std::function<void()> success,
+                               std::function<void()> failure) { promise.set_value(); };
+    worker_manager->HandleReportWorkerFailure(request, &reply, callback);
+    promise.get_future().get();
+  };
+
+  auto get_all_worker_ids = [&]() {
+    rpc::GetAllWorkerInfoRequest request;
+    rpc::GetAllWorkerInfoReply reply;
+    std::promise<void> promise;
+    auto callback = [&promise](Status status,
+                               std::function<void()> success,
+                               std::function<void()> failure) { promise.set_value(); };
+    worker_manager->HandleGetAllWorkerInfo(request, &reply, callback);
+    promise.get_future().get();
+    std::vector<std::string> ids;
+    for (const auto &data : reply.worker_table_data()) {
+      ids.push_back(data.worker_address().worker_id());
+    }
+    return ids;
+  };
+
+  auto contains = [](const std::vector<std::string> &ids, const WorkerID &id) {
+    for (const auto &worker_id : ids) {
+      if (worker_id == id.Binary()) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  std::vector<WorkerID> worker_ids;
+  for (int i = 0; i < 5; i++) {
+    worker_ids.push_back(WorkerID::FromRandom());
+    report_worker_dead(worker_ids.back());
+  }
+
+  auto remaining = get_all_worker_ids();
+  ASSERT_EQ(remaining.size(), 3);
+  EXPECT_FALSE(contains(remaining, worker_ids[0]));
+  EXPECT_FALSE(contains(remaining, worker_ids[1]));
+  EXPECT_TRUE(contains(remaining, worker_ids[2]));
+  EXPECT_TRUE(contains(remaining, worker_ids[3]));
+  EXPECT_TRUE(contains(remaining, worker_ids[4]));
+}
+
+TEST_F(GcsWorkerManagerTest, TestRestoreDeadWorkerIdsQueue) {
+  RayConfig::instance().initialize(
+      R"(
+{
+"maximum_gcs_dead_worker_cached_count": 3
+}
+)");
+
+  auto worker_manager = GetWorkerManager();
+
+  auto add_dead_worker = [&](const WorkerID &worker_id, uint64_t end_time_ms) {
+    rpc::WorkerTableData worker_data;
+    worker_data.mutable_worker_address()->set_worker_id(worker_id.Binary());
+    worker_data.set_is_alive(false);
+    worker_data.set_end_time_ms(end_time_ms);
+    rpc::AddWorkerInfoRequest request;
+    request.mutable_worker_data()->CopyFrom(worker_data);
+    rpc::AddWorkerInfoReply reply;
+    std::promise<void> promise;
+    auto callback = [&promise](Status status,
+                               std::function<void()> success,
+                               std::function<void()> failure) { promise.set_value(); };
+    worker_manager->HandleAddWorkerInfo(request, &reply, callback);
+    promise.get_future().get();
+  };
+
+  auto get_all_worker_ids = [&]() {
+    rpc::GetAllWorkerInfoRequest request;
+    rpc::GetAllWorkerInfoReply reply;
+    std::promise<void> promise;
+    auto callback = [&promise](Status status,
+                               std::function<void()> success,
+                               std::function<void()> failure) { promise.set_value(); };
+    worker_manager->HandleGetAllWorkerInfo(request, &reply, callback);
+    promise.get_future().get();
+    std::vector<std::string> ids;
+    for (const auto &data : reply.worker_table_data()) {
+      ids.push_back(data.worker_address().worker_id());
+    }
+    return ids;
+  };
+
+  auto contains = [](const std::vector<std::string> &ids, const WorkerID &id) {
+    for (const auto &worker_id : ids) {
+      if (worker_id == id.Binary()) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Seed 5 dead workers (cap is 3) with ascending death times: worker_ids[0] is oldest
+  std::vector<WorkerID> worker_ids;
+  for (int i = 0; i < 5; i++) {
+    worker_ids.push_back(WorkerID::FromRandom());
+    add_dead_worker(worker_ids.back(), /*end_time_ms=*/(i + 1) * 10);
+  }
+  ASSERT_EQ(get_all_worker_ids().size(), 5);
+
+  worker_manager->RestoreDeadWorkerIdsQueue();
+  WaitForIoService();
+
+  auto remaining = get_all_worker_ids();
+  ASSERT_EQ(remaining.size(), 3);
+  EXPECT_FALSE(contains(remaining, worker_ids[0]));
+  EXPECT_FALSE(contains(remaining, worker_ids[1]));
+  EXPECT_TRUE(contains(remaining, worker_ids[2]));
+  EXPECT_TRUE(contains(remaining, worker_ids[3]));
+  EXPECT_TRUE(contains(remaining, worker_ids[4]));
 }

@@ -68,14 +68,13 @@ class GcsWorkerManager : public rpc::WorkerInfoGcsServiceHandler {
   void SetUsageStatsClient(UsageStatsClient *usage_stats_client) {
     usage_stats_client_ = usage_stats_client;
   }
-  /// This is only used to restore the queue after GCS restarts
+  /// Used to restore the queue after GCS restarts (in the case when FT is enabled)
   void RestoreDeadWorkerIdsQueue();
 
  private:
   void GetWorkerInfo(const WorkerID &worker_id,
                      Postable<void(std::optional<rpc::WorkerTableData>)> callback) const;
-
-  void UpdateDeadWorkerIdsQueue(const WorkerID &worker_id);
+  void TrimDeadWorkers(const WorkerID &worker_id);
 
   gcs::GcsTableStorage &gcs_table_storage_;
   instrumented_io_context &io_context_;
