@@ -349,7 +349,7 @@ void GcsWorkerManager::RestoreDeadWorkerIdsQueue(const GcsInitData &gcs_init_dat
       dead.emplace_back(worker_id,
                         data.end_time_ms() != 0
                             ? data.end_time_ms()
-                            : static_cast<uint64_t>(data.timestamp()));
+                            : static_cast<uint64_t>(data.timestamp() * 1000));
     }
   }
   std::sort(dead.begin(), dead.end(), [](const auto &left, const auto &right) {
