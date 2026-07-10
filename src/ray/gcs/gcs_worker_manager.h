@@ -74,12 +74,6 @@ class GcsWorkerManager : public rpc::WorkerInfoGcsServiceHandler {
    * @brief Rebuilds the dead-worker id queue from the worker table on GCS startup and
    * trims it to the retention cap.
    *
-   * Reads the persisted worker table, seeds the in-memory FIFO with its dead workers
-   * (ordered by death time), and deletes the oldest entries beyond
-   * maximum_gcs_dead_worker_cached_count. A no-op when the table holds no dead rows (a
-   * fresh cluster or the in-memory store); under Redis fault tolerance it bounds the
-   * dead-worker backlog that survived a GCS restart.
-   *
    * @param gcs_init_data Metadata loaded from the store at startup, providing the worker
    * table snapshot to rebuild the queue from.
    */
@@ -92,10 +86,6 @@ class GcsWorkerManager : public rpc::WorkerInfoGcsServiceHandler {
   /**
    * @brief Records a newly dead worker and evicts the oldest one when the retention cap
    * is exceeded.
-   *
-   * Appends @p worker_id to the dead-worker queue; if the number of retained dead workers
-   * would exceed maximum_gcs_dead_worker_cached_count, deletes the oldest dead worker
-   * from the worker table so retention stays bounded.
    *
    * @param worker_id The id of the worker that just died.
    */
