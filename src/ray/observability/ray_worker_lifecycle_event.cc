@@ -61,6 +61,10 @@ void RayWorkerLifecycleEvent::MergeData(
   if (data_.job_id().empty() && !other_event.data_.job_id().empty()) {
     data_.set_job_id(other_event.data_.job_id());
   }
+  if (data_.worker_type() == rpc::WorkerType::WORKER &&
+      other_event.data_.worker_type() != rpc::WorkerType::WORKER) {
+    data_.set_worker_type(other_event.data_.worker_type());
+  }
   for (auto &state_transition : *other_event.data_.mutable_state_transitions()) {
     data_.mutable_state_transitions()->Add(std::move(state_transition));
   }

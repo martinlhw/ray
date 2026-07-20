@@ -225,17 +225,20 @@ void GcsWorkerManager::HandleAddWorkerInfo(rpc::AddWorkerInfoRequest request,
   RAY_LOG(DEBUG).WithField(worker_id) << "Adding worker ";
 
   auto on_done =
-      [worker_id, worker_data, reply, send_reply_callback](const Status &status) {
+      [this, worker_id, worker_data, reply, send_reply_callback](const Status &status) {
         if (!status.ok()) {
           RAY_LOG(ERROR) << "Failed to add worker information, "
                          << worker_data->DebugString();
+        } else {
+          // Only record the lifecycle event once the registration is persisted, so the
+          // event never races ahead of the worker table (matches the death path).
+          RecordWorkerLifecycleEvent(*worker_data);
         }
         RAY_LOG(DEBUG).WithField(worker_id) << "Finished adding worker ";
         GCS_RPC_SEND_REPLY(send_reply_callback, reply, status);
       };
 
   gcs_table_storage_.WorkerTable().Put(worker_id, *worker_data, {on_done, io_context_});
-  RecordWorkerLifecycleEvent(*worker_data);
 }
 
 void GcsWorkerManager::HandleUpdateWorkerDebuggerPort(
@@ -418,7 +421,7 @@ void GcsWorkerManager::RecordWorkerLifecycleEvent(const rpc::WorkerTableData &da
   if (!RayConfig::instance().enable_ray_event()) {
     return;
   }
-  if (data.worker_type() != rpc::WorkerType::WORKER) {
+  if (data.worker_type() == rpc::WorkerType::DRIVER) {
     return;
   }
   std::vector<std::unique_ptr<observability::RayEventInterface>> events;
