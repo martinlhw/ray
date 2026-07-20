@@ -43,8 +43,6 @@ TEST_F(RayWorkerLifecycleEventTest, TestMergeAndSerialize) {
   dead.set_exit_type(rpc::WorkerExitType::NODE_OUT_OF_MEMORY);
   dead.set_exit_detail("out of memory");
   dead.set_memory_used_bytes_at_death(987654321);
-  // job_id is populated at death (workers register before job assignment); the merge
-  // should carry it onto the combined event even though the ALIVE record lacked it.
   dead.set_job_id("job-1");
   dead.mutable_worker_address()->set_worker_id("worker-123");
   dead.mutable_worker_address()->set_node_id("node-1");
@@ -80,8 +78,8 @@ TEST_F(RayWorkerLifecycleEventTest, TestMergeAndSerialize) {
   ASSERT_TRUE(w.state_transitions(1).death_info().has_memory_used_bytes());
   ASSERT_EQ(w.state_transitions(1).death_info().memory_used_bytes(), 987654321);
 
-  // A non-OOM death carries no memory reading (the process is already gone), so the
-  // event's memory_used_bytes must stay absent rather than default to 0.
+  // A non-OOM death carries no memory reading so the event's memory_used_bytes must stay
+  // absent rather than default to 0
   rpc::WorkerTableData non_oom_dead;
   non_oom_dead.set_is_alive(false);
   non_oom_dead.set_worker_type(rpc::WorkerType::WORKER);

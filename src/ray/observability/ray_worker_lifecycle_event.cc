@@ -39,8 +39,7 @@ RayWorkerLifecycleEvent::RayWorkerLifecycleEvent(const rpc::WorkerTableData &dat
     auto *death_info = state_transition.mutable_death_info();
     death_info->set_exit_type(data.exit_type());
     death_info->set_exit_detail(data.exit_detail());
-    // Only carried through for OOM kills; absent otherwise, so preserve absence
-    // instead of emitting a misleading 0.
+    // Only carried through for OOM kills; omitted otherwise
     if (data.has_memory_used_bytes_at_death()) {
       death_info->set_memory_used_bytes(data.memory_used_bytes_at_death());
     }
