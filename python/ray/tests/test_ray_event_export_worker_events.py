@@ -133,9 +133,6 @@ class TestWorkerLifecycleEvents:
         httpserver,
         preserve_proto_field_name,
     ):
-        # A normal task worker (ALIVE, then DEAD when the job ends) plus an actor
-        # killed via ray.kill (DEAD with INTENDED_SYSTEM_EXIT). Drivers must NOT
-        # produce a worker lifecycle event -- they are covered by driver job events.
         script = textwrap.dedent(
             """
             import ray
@@ -168,9 +165,9 @@ class TestWorkerLifecycleEvents:
             saw_killed_dead = False
             for e in worker_events:
                 w = e[k["wle"]]
-                # Filter check: no worker lifecycle event should describe a driver.
+                # Filter check: no worker lifecycle event should describe a driver
                 assert w.get(k["worker_type"]) != "DRIVER"
-                # Identity is always present.
+                # Identity is always present
                 assert w.get(k["worker_id"])
                 for st in w.get(k["state_transitions"], []):
                     if st.get("state") == "ALIVE":

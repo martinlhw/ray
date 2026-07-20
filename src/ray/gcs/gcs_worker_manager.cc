@@ -112,9 +112,7 @@ void GcsWorkerManager::HandleReportWorkerFailure(
              gcs_publisher_.PublishWorkerFailure(worker_id, std::move(worker_failure));
              if (!is_duplicate_death_report) {
                TrimDeadWorkers(worker_id, worker_failure_data->exit_type());
-               if (worker_failure_data->worker_type() != rpc::WorkerType::DRIVER) {
-                 RecordWorkerLifecycleEvent(*worker_failure_data);
-               }
+               RecordWorkerLifecycleEvent(*worker_failure_data);
              }
            }
            GCS_RPC_SEND_REPLY(send_reply_callback, reply, status);
@@ -237,9 +235,7 @@ void GcsWorkerManager::HandleAddWorkerInfo(rpc::AddWorkerInfoRequest request,
       };
 
   gcs_table_storage_.WorkerTable().Put(worker_id, *worker_data, {on_done, io_context_});
-  if (worker_data->worker_type() != rpc::WorkerType::DRIVER) {
-    RecordWorkerLifecycleEvent(*worker_data);
-  }
+  RecordWorkerLifecycleEvent(*worker_data);
 }
 
 void GcsWorkerManager::HandleUpdateWorkerDebuggerPort(
@@ -420,6 +416,9 @@ void GcsWorkerManager::TrimDeadWorkers(const WorkerID &worker_id,
 
 void GcsWorkerManager::RecordWorkerLifecycleEvent(const rpc::WorkerTableData &data) {
   if (!RayConfig::instance().enable_ray_event()) {
+    return;
+  }
+  if (data.worker_type() != rpc::WorkerType::WORKER) {
     return;
   }
   std::vector<std::unique_ptr<observability::RayEventInterface>> events;
