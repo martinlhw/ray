@@ -122,8 +122,8 @@ TEST_F(GcsWorkerManagerTest, TestWorkerLifecycleEventEmittedForWorker) {
 TEST_F(GcsWorkerManagerTest, TestDriverDoesNotEmitWorkerLifecycleEvent) {
   RayConfig::instance().initialize(R"({"enable_ray_event": true})");
 
-  // GenWorkerTableData defaults to DRIVER, which is covered by driver job events.
   rpc::WorkerTableData driver = GenWorkerTableData(1234);
+
   rpc::AddWorkerInfoRequest request;
   request.mutable_worker_data()->CopyFrom(driver);
   rpc::AddWorkerInfoReply reply;
