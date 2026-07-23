@@ -46,9 +46,6 @@ RayWorkerLifecycleEvent::RayWorkerLifecycleEvent(const rpc::WorkerTableData &dat
   }
 
   data_.set_worker_id(data.worker_address().worker_id());
-  data_.set_node_id(data.worker_address().node_id());
-  data_.set_worker_type(data.worker_type());
-  data_.set_pid(data.pid());
   data_.set_job_id(data.job_id());
   data_.mutable_state_transitions()->Add(std::move(state_transition));
 }
@@ -60,10 +57,6 @@ void RayWorkerLifecycleEvent::MergeData(
   auto &&other_event = static_cast<RayWorkerLifecycleEvent &&>(other);
   if (data_.job_id().empty() && !other_event.data_.job_id().empty()) {
     data_.set_job_id(other_event.data_.job_id());
-  }
-  if (data_.worker_type() == rpc::WorkerType::WORKER &&
-      other_event.data_.worker_type() != rpc::WorkerType::WORKER) {
-    data_.set_worker_type(other_event.data_.worker_type());
   }
   for (auto &state_transition : *other_event.data_.mutable_state_transitions()) {
     data_.mutable_state_transitions()->Add(std::move(state_transition));

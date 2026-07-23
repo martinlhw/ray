@@ -45,10 +45,7 @@ message WorkerLifecycleEvent {
     DeathInfo death_info = 7;
   }
   bytes worker_id = 1;
-  bytes node_id = 2;
-  WorkerType worker_type = 3;
-  uint32 pid = 4;
-  // The ID of the job this worker belongs to.
-  bytes job_id = 5;
-  repeated StateTransition state_transitions = 6;
+  // a worker's job is assigned after registration (at lease time).
+  bytes job_id = 2;
+  repeated StateTransition state_transitions = 3;
 }

@@ -23,6 +23,7 @@
 
 #include "ray/common/ray_config.h"
 #include "ray/gcs/gcs_init_data.h"
+#include "ray/observability/ray_worker_definition_event.h"
 #include "ray/observability/ray_worker_lifecycle_event.h"
 
 namespace ray {
@@ -425,6 +426,16 @@ void GcsWorkerManager::RecordWorkerLifecycleEvent(const rpc::WorkerTableData &da
     return;
   }
   std::vector<std::unique_ptr<observability::RayEventInterface>> events;
+  // Emit the static identity once, at worker registration. This function is only
+  // reached from the registration path (alive) and the death path (dead), so
+  // is_alive() reliably distinguishes them and the definition event is emitted
+  // exactly once. There is no "update while alive" caller that would re-emit it.
+  // The dynamic ALIVE/DEAD transitions are carried by the lifecycle event and
+  // correlated back to the definition event by worker_id.
+  if (data.is_alive()) {
+    events.push_back(
+        std::make_unique<observability::RayWorkerDefinitionEvent>(data, session_name_));
+  }
   events.push_back(
       std::make_unique<observability::RayWorkerLifecycleEvent>(data, session_name_));
   ray_event_recorder_.AddEvents(std::move(events));

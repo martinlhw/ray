@@ -115,8 +115,9 @@ TEST_F(GcsWorkerManagerTest, TestWorkerLifecycleEventEmittedForWorker) {
   promise.get_future().get();
 
   auto events = FlushRecordedEvents();
-  ASSERT_EQ(events.size(), 1);
-  ASSERT_EQ(events[0]->GetEventType(), rpc::events::RayEvent::WORKER_LIFECYCLE_EVENT);
+  ASSERT_EQ(events.size(), 2);
+  ASSERT_EQ(events[0]->GetEventType(), rpc::events::RayEvent::WORKER_DEFINITION_EVENT);
+  ASSERT_EQ(events[1]->GetEventType(), rpc::events::RayEvent::WORKER_LIFECYCLE_EVENT);
 }
 
 TEST_F(GcsWorkerManagerTest, TestDriverDoesNotEmitWorkerLifecycleEvent) {

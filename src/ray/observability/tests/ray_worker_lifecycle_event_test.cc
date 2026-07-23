@@ -59,9 +59,6 @@ TEST_F(RayWorkerLifecycleEventTest, TestMergeAndSerialize) {
 
   const auto &w = serialized.worker_lifecycle_event();
   ASSERT_EQ(w.worker_id(), "worker-123");
-  ASSERT_EQ(w.node_id(), "node-1");
-  ASSERT_EQ(w.worker_type(), rpc::WorkerType::WORKER);
-  ASSERT_EQ(w.pid(), 54321);
   ASSERT_EQ(w.job_id(), "job-1");
   ASSERT_EQ(w.state_transitions_size(), 2);
 

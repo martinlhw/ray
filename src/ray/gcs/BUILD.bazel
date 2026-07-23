@@ -175,6 +175,7 @@ ray_cc_library(
         ":grpc_service_interfaces",
         "//src/ray/common:ray_config",
         "//src/ray/observability:ray_event_recorder_interface",
+        "//src/ray/observability:ray_worker_definition_event",
         "//src/ray/observability:ray_worker_lifecycle_event",
         "//src/ray/pubsub:gcs_publisher",
         "//src/ray/stats:stats_metric",

@@ -2,15 +2,14 @@ import json
 import logging
 import textwrap
 
-import grpc
 import pytest
 
-import ray.dashboard.consts as dashboard_consts
 from ray._common.network_utils import find_free_port
 from ray._common.test_utils import wait_for_condition
-from ray._private import ray_constants
-from ray._private.test_utils import run_string_as_driver_nonblocking
-from ray._raylet import GcsClient
+from ray._private.test_utils import (
+    run_string_as_driver_nonblocking,
+    wait_until_grpc_channel_ready,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,36 +49,6 @@ _cluster_with_aggregator_target = pytest.mark.parametrize(
 )
 
 
-def wait_until_grpc_channel_ready(
-    gcs_address: str, node_ids: list[str], timeout: int = 5
-):
-    gcs_client = GcsClient(address=gcs_address)
-
-    def get_dashboard_agent_address(node_id: str):
-        return gcs_client.internal_kv_get(
-            f"{dashboard_consts.DASHBOARD_AGENT_ADDR_NODE_ID_PREFIX}{node_id}".encode(),
-            namespace=ray_constants.KV_NAMESPACE_DASHBOARD,
-            timeout=dashboard_consts.GCS_RPC_TIMEOUT_SECONDS,
-        )
-
-    wait_for_condition(
-        lambda: all(
-            get_dashboard_agent_address(node_id) is not None for node_id in node_ids
-        )
-    )
-    grpc_ports = [
-        json.loads(get_dashboard_agent_address(node_id))[2] for node_id in node_ids
-    ]
-    targets = [f"127.0.0.1:{grpc_port}" for grpc_port in grpc_ports]
-    for target in targets:
-        channel = grpc.insecure_channel(target)
-        try:
-            grpc.channel_ready_future(channel).result(timeout=timeout)
-        except grpc.FutureTimeoutError:
-            return False
-    return True
-
-
 def get_and_validate_events(httpserver, validation_func):
     event_data = []
     for http_log in httpserver.log:
@@ -103,11 +72,12 @@ def run_driver_script_and_wait_for_events(script, httpserver, cluster, validatio
 
 
 def _keys(preserve_proto_field_name: bool) -> dict:
-    """JSON key names for a WorkerLifecycleEvent under either proto->JSON naming mode."""
+    """JSON key names for the worker events under either proto->JSON naming mode."""
     if preserve_proto_field_name:
         return dict(
             event_type="event_type",
             wle="worker_lifecycle_event",
+            wde="worker_definition_event",
             worker_id="worker_id",
             worker_type="worker_type",
             state_transitions="state_transitions",
@@ -117,6 +87,7 @@ def _keys(preserve_proto_field_name: bool) -> dict:
     return dict(
         event_type="eventType",
         wle="workerLifecycleEvent",
+        wde="workerDefinitionEvent",
         worker_id="workerId",
         worker_type="workerType",
         state_transitions="stateTransitions",
@@ -156,17 +127,26 @@ class TestWorkerLifecycleEvents:
         k = _keys(preserve_proto_field_name)
 
         def validate_events(events):
-            worker_events = [
+            lifecycle_events = [
                 e for e in events if e.get(k["event_type"]) == "WORKER_LIFECYCLE_EVENT"
             ]
-            assert worker_events, "no WORKER_LIFECYCLE_EVENT received"
+            definition_events = [
+                e for e in events if e.get(k["event_type"]) == "WORKER_DEFINITION_EVENT"
+            ]
+            assert lifecycle_events, "no WORKER_LIFECYCLE_EVENT received"
+            assert definition_events, "no WORKER_DEFINITION_EVENT received"
+
+            # The static identity lives on the definition event. No worker event
+            # should describe a driver (drivers are covered by driver job events).
+            for e in definition_events:
+                d = e[k["wde"]]
+                assert d.get(k["worker_type"]) != "DRIVER"
+                assert d.get(k["worker_id"])
 
             saw_alive = False
             saw_killed_dead = False
-            for e in worker_events:
+            for e in lifecycle_events:
                 w = e[k["wle"]]
-                # Filter check: no worker lifecycle event should describe a driver
-                assert w.get(k["worker_type"]) != "DRIVER"
                 # Identity is always present
                 assert w.get(k["worker_id"])
                 for st in w.get(k["state_transitions"], []):
